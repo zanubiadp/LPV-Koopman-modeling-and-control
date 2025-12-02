@@ -36,7 +36,7 @@ import matplotlib.pyplot as plt
 # GLOBAL SWITCH: FREE vs FORCED
 # ============================================================
 
-USE_FORCING = False   # <- set to True for forced simulations, False for free
+USE_FORCING = True   # <- set to True for forced simulations, False for free
 
 
 # ============================================================

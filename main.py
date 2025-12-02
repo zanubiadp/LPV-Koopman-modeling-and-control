@@ -76,7 +76,10 @@ def main() -> None:
     SAVE_ON = True  # set False to skip saving the learned model
 
     # System parameters
+    # number of physical states used for modeling (x1,x2)
     n_states = 2
+    # total simulated state dimension (augmented with the input-as-state x3)
+    n_total_states = 3
     dt = 0.01
     Tend = 5.0
     time_span = np.arange(0.0, Tend, dt)
@@ -86,14 +89,35 @@ def main() -> None:
     n_cc = np.floor(nEig / 2).astype(int)
     h = 0.1
 
-    # System dynamics
-    f_u = lambda t, x, u: np.array([-x[0] + x[0] * x[1], -x[1] + u], dtype=float)
+    # System dynamics -- Van der Pol oscillator (from modelAnalysis.py)
+    #   dot x1 = x2
+    #   dot x2 = mu*(1 - x1^2)*x2 - x1 + (1 + a*x1^2)*tanh(b*u)
+    mu = 1.0
+    a = 0.5
+    b = 1.0
+
+    def f_u(t, x, u):
+        # x is the augmented state [x1, x2, x3]
+        x1 = x[0]
+        x2 = x[1]
+        x3 = x[2]
+        f1 = x2
+        f2 = mu * (1.0 - x1 ** 2) * x2 - x1 + (1.0 + a * x1 ** 2) * math.tanh(b * x3)
+        f3 = u  # dot x3 = u (input drives the third state)
+        return np.array([f1, f2, f3], dtype=float)
+
+    # equilibrium for the physical states (x1,x2)
     eq = np.array([0.0, 0.0])
-    gc = np.array([0.0, 1.0])  # input affine coefficient
+    # gc kept as a 2-vector for compatibility with existing routines that
+    # expect an input-affine coefficient. The true input effect here is
+    # nonlinear: (1 + a*x1^2)*tanh(b*u).
+    gc = np.array([0.0, 0.0, 1.0])  # input affine coefficient (approx)
 
     # Initial conditions
-    buffer = 2.0
+    buffer = 3.0
     init_cond = generate_initial_conditions(eq, buffer, num_samples=50)
+    # append initial values for the third (input) state (start at zero)
+    init_cond = np.vstack((init_cond, np.zeros((1, init_cond.shape[1]))))
     Ntraj = init_cond.shape[1]
 
     min_x1 = init_cond[0].min()
@@ -101,9 +125,9 @@ def main() -> None:
     min_x2 = init_cond[1].min()
     max_x2 = init_cond[1].max()
 
-    # Input (only autonomous here)
-    u_id = [0.0]
-    n_inputs = len(u_id)
+    # Inputs: per-trajectory constant input applied to dot(x3)
+    inputs = np.arange(-10, 11, dtype=float)
+    n_inputs = len(inputs)
 
     # Trajectory containers
     Traj: list[list[np.ndarray]] = [[None for _ in range(Ntraj)] for _ in range(n_inputs)]
@@ -124,7 +148,8 @@ def main() -> None:
     # Generate trajectories
     for zz in range(n_inputs):
         for jj in range(Ntraj):
-            x_traj = np.zeros((n_states, trajLen), dtype=float)
+            # store the full simulated (augmented) state trajectory
+            x_traj = np.zeros((n_total_states, trajLen), dtype=float)
             x_traj[:, 0] = init_cond[:, jj]
 
             ii = 0
@@ -133,7 +158,7 @@ def main() -> None:
                 and min_x1 <= x_traj[0, ii] <= max_x1
                 and min_x2 <= x_traj[1, ii] <= max_x2
             ):
-                x_traj[:, ii + 1] = rk4_step(f_u, 0.0, x_traj[:, ii], 0.0, dt)
+                x_traj[:, ii + 1] = rk4_step(f_u, 0.0, x_traj[:, ii], inputs[zz], dt)
                 ii += 1
 
             x_traj = x_traj[:, : ii + 1]
@@ -146,7 +171,7 @@ def main() -> None:
 
     plt.tight_layout()
 
-    # Vectorize data
+    # Vectorize data (only physical states x1,x2 are used for Koopman learning)
     flat_traj = [traj for row in Traj for traj in row if traj is not None]
     F_vec = [[] for _ in range(n_states)]
     for traj in flat_traj:
@@ -193,10 +218,12 @@ def main() -> None:
         CHECK_ON_TRAINING = False
         dt_pred = 0.01
 
+        # initial condition generator now returns the augmented state [x1,x2,x3]
         x0_fcn = lambda k: np.array(
             [
                 min_x1 + (max_x1 - min_x1) * np.random.rand(),
                 min_x2 + (max_x2 - min_x2) * np.random.rand(),
+                0.0,
             ],
             dtype=float,
         )
@@ -217,9 +244,12 @@ def main() -> None:
 
         for kk in range(kmax):
             x_initial = x0_fcn(kk)
-            z0 = liftingFunction(x_initial).reshape(-1)
+            # lifting function expects the physical state (x1,x2)
+            z0 = liftingFunction(x_initial[:n_states]).reshape(-1)
 
-            Xtrue = np.zeros((n_states, Npred + 1), dtype=float)
+            # Xtrue stores the full augmented nonlinear trajectory; X_gra holds
+            # the predicted physical states recovered from the Koopman model
+            Xtrue = np.zeros((n_total_states, Npred + 1), dtype=float)
             X_gra = np.zeros((n_states, Npred + 1), dtype=float)
             Utrue = np.zeros(Npred + 1, dtype=float)
             Z_gra = np.zeros((np.sum(nEig), Npred + 1), dtype=complex)
