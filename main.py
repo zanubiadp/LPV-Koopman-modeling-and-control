@@ -139,7 +139,7 @@ def main() -> None:
     fig, ax = plt.subplots()
     ax.set_xlabel(r"$x_1$")
     ax.set_ylabel(r"$x_2$")
-    ax.set_title(r"$\mathcal S_1$")
+    ax.set_title(r"$\mathcal{S}_1$")
     ax.set_xlim(min_x1, max_x1)
     ax.set_ylim(min_x2, max_x2)
     ax.grid(True)
