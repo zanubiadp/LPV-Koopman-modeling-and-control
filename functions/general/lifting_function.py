@@ -21,9 +21,11 @@ def lifting_function(x: np.ndarray, phi: Iterable[Callable[[np.ndarray], np.ndar
     """
     x = np.asarray(x)
     phi_list = list(phi)
-    out = np.zeros((len(phi_list), x.shape[1]), dtype=float)
+    # Use complex dtype so any imaginary parts from the lifting functions are preserved
+    out = np.zeros((len(phi_list), x.shape[1]), dtype=complex)
 
     for ii, fn in enumerate(phi_list):
-        out[ii, :] = np.asarray(fn(x)).reshape(-1)
+        # Ensure the returned values are treated as complex without discarding the imaginary part
+        out[ii, :] = np.asarray(fn(x), dtype=complex).reshape(-1)
 
     return out
