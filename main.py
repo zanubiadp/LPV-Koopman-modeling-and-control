@@ -85,7 +85,7 @@ def main() -> None:
     time_span = np.arange(0.0, Tend, dt)
     trajLen = len(time_span)
     Ms = trajLen - 1
-    nEig = np.array([13, 13], dtype=int)
+    nEig = np.array([4, 4], dtype=int)
     n_cc = np.floor(nEig / 2).astype(int)
     h = 0.1
 

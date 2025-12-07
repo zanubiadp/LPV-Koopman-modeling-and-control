@@ -99,7 +99,9 @@ def getCostGradientKordacc_re_adaptive(
 
     L = sparse.coo_matrix((vals, (rows, cols)), shape=(Ms_tot, numCols))
 
-    lambda_reg = 0.0
+    # Small Tikhonov regularization to avoid exact singularity in LL = L.T @ L
+    # (prevents SuperLU 'Factor is exactly singular' when LL is rank-deficient).
+    lambda_reg = 1e-8
     LL = L.T @ L + lambda_reg * sparse.eye(numCols, format="csc")
     # Solve for the inverse implicitly
     LL_inv = splinalg.inv(LL.tocsc())
