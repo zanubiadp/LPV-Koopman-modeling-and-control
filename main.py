@@ -12,7 +12,7 @@ from scipy.io import savemat
 
 from functions.general.lifting_function import lifting_function
 from functions.stateSpaceModel.build_A_adaptive import build_A_adaptive
-from functions.stateSpaceModel.build_B_numgrad import build_B_numgrad
+from functions.stateSpaceModel.build_B_numgrad_3D import build_B_numgrad_3D
 from functions.stateSpaceModel.build_C import build_C
 from functions.stateSpaceModel.compute_eigenf_adaptive import compute_eigenf_adaptive
 
@@ -85,7 +85,7 @@ def main() -> None:
     time_span = np.arange(0.0, Tend, dt)
     trajLen = len(time_span)
     Ms = trajLen - 1
-    nEig = np.array([4, 4], dtype=int)
+    nEig = np.array([2, 2], dtype=int)
     n_cc = np.floor(nEig / 2).astype(int)
     h = 0.1
 
@@ -164,21 +164,28 @@ def main() -> None:
             x_traj = x_traj[:, : ii + 1]
             ax.plot(x_traj[0, :], x_traj[1, :], color=(0.7, 0.7, 0.7), linewidth=1)
 
-            Traj[zz][jj] = x_traj
-            Traj_x1[zz][jj] = x_traj[0, :]
-            Traj_x2[zz][jj] = x_traj[1, :]
-            Traj_t[zz][jj] = np.arange(x_traj.shape[1]) * dt
+            # store trajectory augmented with the *input* as the third row
+            # (MATLAB version appends the input value per sample). This makes
+            # Traj entries shaped as (x1,x2,u) which is used later for building
+            # interpolants in (x1,x2,u) space.
+            traj_with_u = np.vstack((x_traj[0:2, :], inputs[zz] * np.ones((1, x_traj.shape[1]))))
+            Traj[zz][jj] = traj_with_u
+            Traj_x1[zz][jj] = traj_with_u[0, :]
+            Traj_x2[zz][jj] = traj_with_u[1, :]
+            Traj_t[zz][jj] = np.arange(traj_with_u.shape[1]) * dt
 
     plt.tight_layout()
 
-    # Vectorize data (only physical states x1,x2 are used for Koopman learning)
+    # Vectorize data (physical states x1,x2 and input u are used for Koopman learning)
     flat_traj = [traj for row in Traj for traj in row if traj is not None]
-    F_vec = [[] for _ in range(n_states)]
+    # include an extra list for the input (third row)
+    F_vec = [[] for _ in range(n_states + 1)]
     for traj in flat_traj:
         F_vec[0].append(traj[0, :])
         F_vec[1].append(traj[1, :])
+        F_vec[2].append(traj[2, :])
 
-    data_uncontrolled = np.vstack((np.hstack(F_vec[0]), np.hstack(F_vec[1])))
+    data_uncontrolled = np.vstack((np.hstack(F_vec[0]), np.hstack(F_vec[1]), np.hstack(F_vec[2])))
 
     # Eigenvalues learning
     lambdas1, lambdas_c1 = build_A_adaptive(Traj_x1, Traj_t, data_uncontrolled[0, :].T, dt, nEig[0], n_cc[0])
@@ -244,8 +251,10 @@ def main() -> None:
 
         for kk in range(kmax):
             x_initial = x0_fcn(kk)
-            # lifting function expects the physical state (x1,x2)
-            z0 = liftingFunction(x_initial[:n_states]).reshape(-1)
+            # lifting function expects the full augmented state (x1,x2,u) now
+            # so pass the complete state vector (the input component is 0 for
+            # the initial condition here).
+            z0 = liftingFunction(x_initial).reshape(-1)
 
             # Xtrue stores the full augmented nonlinear trajectory; X_gra holds
             # the predicted physical states recovered from the Koopman model
@@ -269,7 +278,7 @@ def main() -> None:
                 Utrue[ii] = u_dt(ii)
                 Xtrue[:, ii] = rk4_step(f_u, 0.0, Xtrue[:, ii - 1], Utrue[ii], dt_pred)
 
-                B_numgrad = build_B_numgrad(order, h, phi_hat, X_gra[:, ii - 1], nEig, gc)
+                B_numgrad = build_B_numgrad_3D(h, phi_hat, np.concatenate((X_gra[:, ii-1], [Utrue[ii]])), nEig, gc)
                 B_vec = np.asarray(B_numgrad).reshape(-1)
                 Z_gra[:, ii] = rk4_step_linear(Z_gra[:, ii - 1], Ac, B_vec, Utrue[ii], dt_pred)
                 X_gra[:, ii] = np.real(C @ Z_gra[:, ii])

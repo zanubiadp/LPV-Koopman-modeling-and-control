@@ -32,8 +32,10 @@ def build_B_numgrad_3D(
     """
     x_val, y_val, z_val = map(float, x_initial[:3])
     total_eigs = int(np.sum(nEig))
-    J = np.zeros((total_eigs, 3), dtype=float)
-    Jz = np.zeros((total_eigs, 1), dtype=float)
+    # Use complex dtype so any imaginary parts returned by eigenfunction
+    # interpolants are preserved during finite-difference calculations.
+    J = np.zeros((total_eigs, 3), dtype=complex)
+    Jz = np.zeros((total_eigs, 1), dtype=complex)
 
     for ii in range(total_eigs):
         f = F[ii]
