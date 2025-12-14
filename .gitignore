@@ -1,5 +1,8 @@
-__pycache__/
+# Python cache, anywhere
+**/__pycache__/
 *.pyc
 *.pyo
 *.pyd
+
+# Artifacts
 *.pkl
