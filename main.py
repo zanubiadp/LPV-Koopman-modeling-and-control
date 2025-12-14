@@ -15,6 +15,7 @@ from functions.stateSpaceModel.build_A_adaptive import build_A_adaptive
 from functions.stateSpaceModel.build_B_numgrad_3D import build_B_numgrad_3D
 from functions.stateSpaceModel.build_C import build_C
 from functions.stateSpaceModel.compute_eigenf_adaptive import compute_eigenf_adaptive
+from save_run_artifacts import save_run
 
 
 def rk4_step(f: Callable[[float, np.ndarray, float], np.ndarray], t: float, x: np.ndarray, u: float, dt: float) -> np.ndarray:
@@ -175,6 +176,14 @@ def main() -> None:
             Traj_t[zz][jj] = np.arange(traj_with_u.shape[1]) * dt
 
     plt.tight_layout()
+    # Save the phase portrait so it is available even if the process is
+    # interrupted or the GUI backend closes figures on exit.
+    try:
+        fig.savefig("phase_portrait.png", dpi=150)
+    except Exception:
+        # non-fatal: continue if saving fails for any reason (headless, no write
+        # permission, etc.)
+        pass
 
     # Vectorize data (physical states x1,x2 and input u are used for Koopman learning)
     flat_traj = [traj for row in Traj for traj in row if traj is not None]
@@ -224,6 +233,10 @@ def main() -> None:
     if PREDICT_SINGLE_TRAJ:
         CHECK_ON_TRAINING = False
         dt_pred = 0.01
+
+        # container to save produced prediction traces so we can replay
+        # exact plots later without rerunning the learning stage
+        saved_predictions: list[dict] = []
 
         # initial condition generator now returns the augmented state [x1,x2,x3]
         x0_fcn = lambda k: np.array(
@@ -313,6 +326,48 @@ def main() -> None:
 
             fig_pred.suptitle(title_string)
             plt.tight_layout()
+
+            # persist prediction figure to disk so it can be reviewed later
+            try:
+                fig_pred.savefig(f"prediction_{kk}.png", dpi=150)
+            except Exception:
+                pass
+
+            # save the produced traces for replay (slice up to ii)
+            saved_predictions.append(
+                {
+                    "Xtrue": Xtrue[:, :ii].copy(),
+                    "X_gra": X_gra[:, :ii].copy(),
+                    "Utrue": Utrue[:ii].copy(),
+                    "title": title_string,
+                }
+            )
+
+        # Save all interesting objects so replaying plots doesn't require
+        # re-running the learning stage.
+        artifacts = {
+            "A": A,
+            "Ac": Ac,
+            "C": C,
+            "nEig": nEig,
+            "gc": gc,
+            "h": h,
+            # interpolation points (each row is a dimension)
+            "interp_points": data_uncontrolled.T.astype(float),
+            "phi_vals": phi_vals,
+            "data_uncontrolled": data_uncontrolled,
+            "Traj": Traj,
+            "Traj_t": Traj_t,
+            "Traj_x1": Traj_x1,
+            "Traj_x2": Traj_x2,
+            "predictions": saved_predictions,
+        }
+
+        save_run("run_artifacts.pkl", artifacts)
+
+        # Show all figures and block until closed so plots are visible when
+        # running the script from a terminal.
+        plt.show()
 
 
 if __name__ == "__main__":
