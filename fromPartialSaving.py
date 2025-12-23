@@ -3,6 +3,9 @@ Template script for Koopman model learning (Python translation of MATLAB main).
 """
 from __future__ import annotations
 
+import sys
+from pathlib import Path
+
 import math
 from typing import Callable
 
@@ -17,6 +20,7 @@ from functions.stateSpaceModel.build_C import build_C
 from functions.stateSpaceModel.compute_eigenf_adaptive import compute_eigenf_adaptive
 from save_run_artifacts import save_run
 
+from save_run_artifacts import load_run
 
 def rk4_step(f: Callable[[float, np.ndarray, float], np.ndarray], t: float, x: np.ndarray, u: float, dt: float) -> np.ndarray:
     """Runge-Kutta 4 integrator for nonlinear system."""
@@ -74,6 +78,35 @@ def generate_initial_conditions(eq: np.ndarray, buffer: float, num_samples: int)
 
 
 def main() -> None:
+    args = sys.argv[1:]
+
+    # crude CLI parsing (because apparently we love simplicity until we don't)
+    rebuild_interp = "--rebuild-interp" in args
+    debug = "--debug" in args
+    args = [a for a in args if a not in ("--rebuild-interp", "--debug")]
+
+    path = args[0] if len(args) > 0 else "run_artifacts.pkl"
+    p = Path(path)
+    if not p.exists():
+        raise FileNotFoundError(f"Artifacts file not found: {p.resolve()}")
+    artifacts = load_run(str(p))
+    A = artifacts["A"]
+    Ac = artifacts["Ac"]
+    C = artifacts["C"]
+    nEig = artifacts["nEig"]
+    gc = artifacts["gc"]
+    h = artifacts["h"]
+
+    # Compute discrete lambdas as the diagonal elements of A
+    lambdas_vec = np.diag(A)                    # flat vector
+    split_idx = np.cumsum(nEig)[:-1]            # e.g. [10] when nEig=[10,10]
+    lambdas = np.split(lambdas_vec, split_idx)
+
+    # Compute continuous lambdas as the diagonal elements of A
+    lambdas_vec = np.diag(Ac)                    # flat vector
+    split_idx = np.cumsum(nEig)[:-1]            # e.g. [10] when nEig=[10,10]
+    lambdas_c = np.split(lambdas_vec, split_idx)
+
     SAVE_ON = True  # set False to skip saving the learned model
 
     # System parameters
@@ -196,17 +229,9 @@ def main() -> None:
 
     data_uncontrolled = np.vstack((np.hstack(F_vec[0]), np.hstack(F_vec[1]), np.hstack(F_vec[2])))
 
-    # Eigenvalues learning
-    lambdas1, lambdas_c1 = build_A_adaptive(Traj_x1, Traj_t, data_uncontrolled[0, :].T, dt, nEig[0], n_cc[0])
-    lambdas2, lambdas_c2 = build_A_adaptive(Traj_x2, Traj_t, data_uncontrolled[1, :].T, dt, nEig[1], n_cc[1])
 
-    lambdas = [lambdas1.flatten(), lambdas2.flatten()]
-    lambdas_c = np.concatenate((lambdas_c1, lambdas_c2)).flatten()
+# lambdas_groups[0] -> first 10 vals, lambdas_groups[1] -> next 10, etc.
 
-    # Build matrices A and C
-    A = np.diag(np.concatenate((lambdas1.flatten(), lambdas2.flatten())))
-    Ac = np.diag(lambdas_c)
-    C = build_C(nEig, n_states)
 
     # Eigenfunctions learning
     phi_vals, phi_hat = compute_eigenf_adaptive(lambdas, Traj_t, data_uncontrolled)
@@ -327,11 +352,11 @@ def main() -> None:
             "nEig": nEig,
             "gc": gc,
             "h": h,
-            #"liftingFunction": liftingFunction,
+            # "liftingFunction": liftingFunction,
             # interpolation points (each row is a dimension)
             "interp_points": data_uncontrolled.T.astype(float),
             "phi_vals": phi_vals,
-            # "phi_hat": phi_hat,
+            "phi_hat": phi_hat,
             # data used for learning
             "data_uncontrolled": data_uncontrolled,
             "Traj": Traj,

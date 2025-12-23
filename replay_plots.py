@@ -103,44 +103,6 @@ def plot_phase_portrait(Traj: list, ax=None):
     return ax
 
 
-def plot_predictions(predictions: list):
-    for pred in predictions:
-        Xtrue = pred["Xtrue"]
-        X_gra = pred["X_gra"]
-        Utrue = pred["Utrue"]
-        title = pred.get("title", "Prediction")
-
-        fig_pred, axes = plt.subplots(3, 1, figsize=(8, 8))
-        N = Xtrue.shape[1]
-        time_ticks = np.linspace(0, N - 1, 5)
-
-        axes[0].plot(Xtrue[0, :], linewidth=2, color="#001BFF", label=r"$x_1$")
-        axes[0].plot(X_gra[0, :], linewidth=2, linestyle=":", color="magenta", label=r"$\hat x_1$")
-        axes[0].legend(fontsize=12)
-        axes[0].grid(True)
-        axes[0].set_xticks(time_ticks)
-        axes[0].set_xticklabels([f"{t:.2f}" for t in time_ticks])
-        axes[0].set_ylabel(r"$x_1$")
-
-        axes[1].plot(Xtrue[1, :], linewidth=2, color="#001BFF", label=r"$x_2$")
-        axes[1].plot(X_gra[1, :], linewidth=2, linestyle=":", color="magenta", label=r"$\hat x_2$")
-        axes[1].legend(fontsize=12)
-        axes[1].grid(True)
-        axes[1].set_xticks(time_ticks)
-        axes[1].set_xticklabels([f"{t:.2f}" for t in time_ticks])
-        axes[1].set_ylabel(r"$x_2$")
-
-        axes[2].plot(Utrue, linewidth=2, color="#001BFF", label=r"$u$")
-        axes[2].grid(True)
-        axes[2].set_xticks(time_ticks)
-        axes[2].set_xticklabels([f"{t:.2f}" for t in time_ticks])
-        axes[2].set_xlabel("time [samples]")
-        axes[2].set_ylabel(r"$u$")
-
-        fig_pred.suptitle(title)
-        plt.tight_layout()
-
-
 def main():
     args = sys.argv[1:]
 
@@ -177,10 +139,109 @@ def main():
     fig, ax = plt.subplots(figsize=(6, 6))
     plot_phase_portrait(artifacts["Traj"], ax=ax)
 
-    # Replay predictions
-    preds = artifacts.get("predictions", [])
-    if preds:
-        plot_predictions(preds)
+
+    # Make new plots here as needed...
+    PREDICT_SINGLE_TRAJ = True
+    u_dt = lambda k: (-1.0) ** (round(k / 30))
+
+    if PREDICT_SINGLE_TRAJ:
+        CHECK_ON_TRAINING = True
+        dt_pred = 0.01
+
+        # initial condition generator now returns the augmented state [x1,x2,x3]
+        x0_fcn = lambda k: np.array(
+            [
+                min_x1 + (max_x1 - min_x1) * np.random.rand(),
+                min_x2 + (max_x2 - min_x2) * np.random.rand(),
+                0.0,
+            ],
+            dtype=float,
+        )
+
+        if CHECK_ON_TRAINING:
+            Tpred = 1.0
+            u = lambda t, k: 0.0
+            title_string = "Prediction without input"
+        else:
+            Tpred = 2.0
+            Amp = 1.0
+            w = 10.0
+            u = lambda t, k: Amp * math.sin(w * t)
+            title_string = "Prediction with input"
+
+        Npred = int(Tpred / dt_pred)
+        kmax = 5
+
+        for kk in range(kmax):
+            x_initial = x0_fcn(kk)
+            # lifting function expects the full augmented state (x1,x2,u) now
+            # so pass the complete state vector (the input component is 0 for
+            # the initial condition here).
+            z0 = liftingFunction(x_initial).reshape(-1)
+
+            # Xtrue stores the full augmented nonlinear trajectory; X_gra holds
+            # the predicted physical states recovered from the Koopman model
+            Xtrue = np.zeros((n_total_states, Npred + 1), dtype=float)
+            X_gra = np.zeros((n_states, Npred + 1), dtype=float)
+            Utrue = np.zeros(Npred + 1, dtype=float)
+            Z_gra = np.zeros((np.sum(nEig), Npred + 1), dtype=complex)
+
+            Z_gra[:, 0] = z0
+            Xtrue[:, 0] = x_initial
+            X_gra[:, 0] = np.real(C @ z0)
+            Utrue[0] = u(0.0, kk)
+
+            order = 4
+            ii = 1
+            while (
+                ii <= Npred
+                and (min_x1 + 0.2) <= X_gra[0, ii - 1] <= (max_x1 - 0.2)
+                and (min_x2 + 0.2) <= X_gra[1, ii - 1] <= (max_x2 - 0.2)
+            ):
+                Utrue[ii] = u_dt(ii)
+                Xtrue[:, ii] = rk4_step(f_u, 0.0, Xtrue[:, ii - 1], Utrue[ii], dt_pred)
+
+                B_numgrad = build_B_numgrad_3D(h, phi_hat, np.concatenate((X_gra[:, ii-1], [Utrue[ii]])), nEig, gc)
+                B_vec = np.asarray(B_numgrad).reshape(-1)
+                Z_gra[:, ii] = rk4_step_linear(Z_gra[:, ii - 1], Ac, B_vec, Utrue[ii], dt_pred)
+                X_gra[:, ii] = np.real(C @ Z_gra[:, ii])
+
+                ii += 1
+
+            time_ticks = np.linspace(0, ii - 1, 5)
+            fig_pred, axes = plt.subplots(3, 1, figsize=(8, 8))
+
+            axes[0].plot(Xtrue[0, :ii], linewidth=2, color="#001BFF", label=r"$x_1$")
+            axes[0].plot(X_gra[0, :ii], linewidth=2, linestyle=":", color="magenta", label=r"$\hat x_1$")
+            axes[0].legend(fontsize=12)
+            axes[0].grid(True)
+            axes[0].set_xticks(time_ticks)
+            axes[0].set_xticklabels([f"{t*dt_pred:.2f}" for t in time_ticks])
+            axes[0].set_ylabel(r"$x_1$")
+
+            axes[1].plot(Xtrue[1, :ii], linewidth=2, color="#001BFF", label=r"$x_2$")
+            axes[1].plot(X_gra[1, :ii], linewidth=2, linestyle=":", color="magenta", label=r"$\hat x_2$")
+            axes[1].legend(fontsize=12)
+            axes[1].grid(True)
+            axes[1].set_xticks(time_ticks)
+            axes[1].set_xticklabels([f"{t*dt_pred:.2f}" for t in time_ticks])
+            axes[1].set_ylabel(r"$x_2$")
+
+            axes[2].plot(Utrue[:ii], linewidth=2, color="#001BFF", label=r"$u$")
+            axes[2].grid(True)
+            axes[2].set_xticks(time_ticks)
+            axes[2].set_xticklabels([f"{t*dt_pred:.2f}" for t in time_ticks])
+            axes[2].set_xlabel("time [s]")
+            axes[2].set_ylabel(r"$u$")
+
+            fig_pred.suptitle(title_string)
+            plt.tight_layout()
+
+            # persist prediction figure to disk so it can be reviewed later
+            try:
+                fig_pred.savefig(f"prediction_{kk}.png", dpi=150)
+            except Exception:
+                pass
 
     plt.show()
 
