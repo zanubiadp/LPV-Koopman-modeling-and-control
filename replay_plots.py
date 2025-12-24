@@ -28,6 +28,12 @@ from scipy.spatial import Delaunay
 
 from save_run_artifacts import load_run
 
+from functions.general.lifting_function import lifting_function
+from functions.stateSpaceModel.build_A_adaptive import build_A_adaptive
+from functions.stateSpaceModel.build_B_numgrad_3D import build_B_numgrad_3D
+from functions.stateSpaceModel.build_C import build_C
+from functions.stateSpaceModel.compute_eigenf_adaptive import compute_eigenf_adaptive
+
 
 def make_phi_hat(points: np.ndarray, phi_vals: np.ndarray, debug: bool = False):
     """Recreate callable interpolants from saved points and values.
@@ -121,23 +127,56 @@ def main():
     if debug:
         print(f"[debug] Loaded artifacts in {time.perf_counter() - t0:.3f} s")
 
+    # Unpack commonly used artifacts
+    A = artifacts["A"]
+    Ac = artifacts["Ac"]
+    C = artifacts["C"]
+    nEig = artifacts["nEig"]
+    gc = artifacts["gc"]
+    h = artifacts["h"]
+    interp_points = artifacts["interp_points"]
+    #phi_vals = artifacts["phi_vals"]
+    data_uncontrolled = artifacts["data_uncontrolled"]
+    Traj = artifacts["Traj"]
+    Traj_t = artifacts["Traj_t"]
+    Traj_x1 = artifacts["Traj_x1"]
+    Traj_x2 = artifacts["Traj_x2"]
+    min_x1 = artifacts["min_x1"]
+    max_x1 = artifacts["max_x1"]
+    min_x2 = artifacts["min_x2"]
+    max_x2 = artifacts["max_x2"]
+    n_states = artifacts["n_states"]
+    n_total_states = artifacts["n_total_states"]
+
+    # Compute discrete lambdas as the diagonal elements of A
+    lambdas_vec = np.diag(A)                    # flat vector
+    split_idx = np.cumsum(nEig)[:-1]            # e.g. [10] when nEig=[10,10]
+    lambdas = np.split(lambdas_vec, split_idx)
+
+    # Compute continuous lambdas as the diagonal elements of A
+    lambdas_vec = np.diag(Ac)                    # flat vector
+    split_idx = np.cumsum(nEig)[:-1]            # e.g. [10] when nEig=[10,10]
+    lambdas_c = np.split(lambdas_vec, split_idx)
+
+    # Recreate lifting function
+    phi_vals, phi_hat = compute_eigenf_adaptive(lambdas, Traj_t, data_uncontrolled)
+    liftingFunction = lambda x: lifting_function(np.asarray(x, dtype=float).reshape(-1, 1), phi_hat)
+
     # Reconstruct interpolants ONLY if explicitly requested.
     # In this script, phi_hat is not used for plotting, so default is OFF.
     if rebuild_interp:
-        points = np.asarray(artifacts["interp_points"], dtype=float)
-        phi_vals = np.asarray(artifacts["phi_vals"], dtype=float)
 
         if debug:
-            print(f"[debug] points.shape = {points.shape}, phi_vals.shape = {phi_vals.shape}")
+            print(f"[debug] points.shape = {interp_points.shape}, phi_vals.shape = {phi_vals.shape}")
 
         t1 = time.perf_counter()
-        phi_hat = make_phi_hat(points, phi_vals, debug=debug)
+        phi_hat = make_phi_hat(interp_points, phi_vals, debug=debug)
         if debug:
             print(f"[debug] Built {len(phi_hat)} interpolants in {time.perf_counter() - t1:.3f} s")
 
     # Phase portrait
     fig, ax = plt.subplots(figsize=(6, 6))
-    plot_phase_portrait(artifacts["Traj"], ax=ax)
+    plot_phase_portrait(Traj, ax=ax)
 
 
     # Make new plots here as needed...
