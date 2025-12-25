@@ -33,6 +33,7 @@ from functions.stateSpaceModel.build_A_adaptive import build_A_adaptive
 from functions.stateSpaceModel.build_B_numgrad_3D import build_B_numgrad_3D
 from functions.stateSpaceModel.build_C import build_C
 from functions.stateSpaceModel.compute_eigenf_adaptive import compute_eigenf_adaptive
+from main import rk4_step, rk4_step_linear
 
 
 def make_phi_hat(points: np.ndarray, phi_vals: np.ndarray, debug: bool = False):
