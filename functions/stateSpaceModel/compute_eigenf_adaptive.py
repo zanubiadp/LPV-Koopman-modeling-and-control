@@ -19,6 +19,7 @@ def compute_eigenf_adaptive(
     data: np.ndarray,
     interp_idx: Iterable[int] | None = None,
     h_idx: Iterable[int] | None = None,
+    lambda_reg = 1e-15, # regularization parameter, tune as needed
 ) -> Tuple[np.ndarray, List[Callable[[np.ndarray], np.ndarray]]]:
     """
     Args:
@@ -63,15 +64,21 @@ def compute_eigenf_adaptive(
         L_Lambda.append(building_L_Lambda_adaptive(lam_group, Mt, Ms_vec, Traj_len_tot))
         h_list.append(np.asarray(data[h_idx[idx], :], dtype=complex).reshape(-1, 1))
 
+    # Solve with regularization to avoid singular matrix inversion
     g_list = []
+
     for L_mat, h_vec in zip(L_Lambda, h_list):
         normal_mat = L_mat.T @ L_mat
         rhs = L_mat.T @ h_vec
+        
+        # Add regularization to the normal equations
+        normal_mat_reg = normal_mat + lambda_reg * sparse.eye(normal_mat.shape[0])
+        
         try:
-            g_vec = splinalg.spsolve(normal_mat.tocsc(), rhs)
+            g_vec = splinalg.spsolve(normal_mat_reg.tocsc(), rhs)
         except Exception:
-            # Fallback to least squares if the system is singular
-            g_vec = splinalg.lsqr(normal_mat, rhs)[0]
+            g_vec = splinalg.lsqr(normal_mat_reg, rhs)[0]
+        
         g_list.append(np.asarray(g_vec).reshape(-1, 1))
 
     # Flatten all eigenvalues
