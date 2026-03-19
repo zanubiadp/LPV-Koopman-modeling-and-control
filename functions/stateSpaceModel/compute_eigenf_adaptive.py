@@ -5,8 +5,10 @@ Computes eigenfunction values and interpolants from learned eigenvalues.
 from __future__ import annotations
 
 import numpy as np
+from functools import lru_cache
+
 from scipy import sparse
-from scipy.interpolate import LinearNDInterpolator
+from scipy.interpolate import LinearNDInterpolator, RegularGridInterpolator
 from scipy.sparse import linalg as splinalg
 from typing import Callable, Iterable, Sequence, Tuple, List
 
@@ -19,7 +21,8 @@ def compute_eigenf_adaptive(
     data: np.ndarray,
     interp_idx: Iterable[int] | None = None,
     h_idx: Iterable[int] | None = None,
-    lambda_reg = 1e-15, # regularization parameter, tune as needed
+    lambda_reg = 1e-15,  # regularization parameter, tune as needed
+    interp_cache_size: int = 16_384,  # number of cached interpolation points per eigenfunction
 ) -> Tuple[np.ndarray, List[Callable[[np.ndarray], np.ndarray]]]:
     """
     Args:
@@ -28,6 +31,7 @@ def compute_eigenf_adaptive(
         data: State/measurement data matrix (states x total_samples).
         interp_idx: Indices of dimensions used for interpolation (default all rows).
         h_idx: Row indices in `data` corresponding to each eigenvalue group.
+        interp_cache_size: Maximum number of cached interpolation points per eigenfunction.
 
     Returns:
         phi_vals: Array of eigenfunction values (sum(nEig) x Traj_len_tot).
@@ -101,24 +105,25 @@ def compute_eigenf_adaptive(
                 phistart = phiend
         eig_prec += n_eig_state
 
-    # Build interpolants
-    phi_hat: List[Callable[[np.ndarray], np.ndarray]] = []
-    if len(interp_idx) > 3:
-        raise NotImplementedError("Case length(interp_idx) > 3 not implemented yet.")
+    # After computing phi_vals, create a regular grid
+    x1_grid = np.linspace(data[interp_idx[0], :].min(), data[interp_idx[0], :].max(), 20)
+    x2_grid = np.linspace(data[interp_idx[1], :].min(), data[interp_idx[1], :].max(), 20)
+    # (adjust grid density as needed)
 
-    points = np.asarray(data[interp_idx, :].T, dtype=float)
-    for ii in range(phi_vals.shape[0]):
-        values = phi_vals[ii, :]
-        interpolator = LinearNDInterpolator(points, values)
+    X1, X2 = np.meshgrid(x1_grid, x2_grid, indexing='ij')
+    grid_points = np.stack([X1.ravel(), X2.ravel()], axis=1)
 
-        def make_fn(interp):
-            def fn(x: np.ndarray) -> np.ndarray:
-                x_arr = np.asarray(x, dtype=float)
-                vals = interp(x_arr.T)
-                return np.asarray(vals).reshape(-1)
+    # Evaluate eigenfunctions on grid using existing LinearNDInterpolator
+    phi_grid = []
+    for old_interp in phi_hat:  # The slow interpolators
+        grid_vals = old_interp(grid_points).reshape(X1.shape)
+        phi_grid.append(grid_vals)
 
-            return fn
-
-        phi_hat.append(make_fn(interpolator))
+    # Now replace with fast grid interpolators
+    phi_hat = []
+    for grid_vals in phi_grid:
+        fast_interp = RegularGridInterpolator((x1_grid, x2_grid), grid_vals, 
+                                            bounds_error=False, fill_value='extrapolate')
+        phi_hat.append(fast_interp)
 
     return phi_vals, phi_hat
