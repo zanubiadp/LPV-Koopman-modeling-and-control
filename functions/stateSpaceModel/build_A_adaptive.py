@@ -51,7 +51,7 @@ def build_A_adaptive(
     Traj_t_list = [list(row) if not isinstance(row, list) else row for row in Traj_t]
     
     # Compute total measurement points
-    Ms_tot = data.shape[1]
+    Ms_tot = data.shape[0]
     
     # Create cache for efficient repeated cost/gradient evaluations
     cache = CostGradientStructureCache(Traj_t_list, Ms_tot, n_cc, n_eig_total)
