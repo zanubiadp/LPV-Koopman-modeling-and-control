@@ -202,8 +202,7 @@ class BMatrixInterpolator:
             interp = RegularGridInterpolator(
                 points=(self.x1_grid, self.x2_grid, self.u_grid),
                 values=B_grid[:, :, :, eig_idx, 0],
-                bounds_error=False,
-                fill_value="extrapolate",
+                bounds_error=True,
                 method="linear",
             )
             self.interpolators.append(interp)
@@ -211,6 +210,7 @@ class BMatrixInterpolator:
     def __call__(self, x_state: np.ndarray) -> np.ndarray:
         """
         Evaluate B matrix at arbitrary state point via grid interpolation.
+        Clips out-of-bounds queries to grid boundaries to avoid NaN values.
         
         Args:
             x_state: State vector [x1, x2, u].
@@ -219,7 +219,14 @@ class BMatrixInterpolator:
             B matrix (n_eig, 1) at the given state.
         """
         x_state = np.asarray(x_state, dtype=float).ravel()
-        query_point = x_state[:3].reshape(1, -1)
+        x1, x2, u = x_state[:3]
+        
+        # Clip to grid bounds to avoid out-of-bounds issues
+        x1 = np.clip(x1, self.x1_grid[0], self.x1_grid[-1])
+        x2 = np.clip(x2, self.x2_grid[0], self.x2_grid[-1])
+        u = np.clip(u, self.u_grid[0], self.u_grid[-1])
+        
+        query_point = np.array([[x1, x2, u]])
         
         # Evaluate all eigenfunction components
         B_result = np.zeros((self.n_eig, 1), dtype=complex)

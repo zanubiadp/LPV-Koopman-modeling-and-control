@@ -11,3 +11,7 @@
 run_artifacts.pkl
 SavedItems/**/run_artifacts.pkl
 *.pkl
+
+# Virtual environments
+.venv/
+venv/
