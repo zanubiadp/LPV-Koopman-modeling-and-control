@@ -12,8 +12,6 @@ from typing import Callable, Iterable
 # Replace with the actual implementation in this project.
 from functions.stateSpaceModel.getCostGradientKordacc_re_adaptive import (  # type: ignore
     getCostGradientKordacc_re_adaptive,
-    CostGradientStructureCache,
-    getCostGradientKordacc_re_adaptive_cached,
 )
 
 
@@ -47,17 +45,9 @@ def build_A_adaptive(
     rng = rng or np.random.default_rng()
     n_eig_total = int(np.prod(nEig))
 
-    # Convert to lists for structure analysis
-    Traj_t_list = [list(row) if not isinstance(row, list) else row for row in Traj_t]
-    
-    # Compute total measurement points
-    Ms_tot = data.shape[0]
-    
-    # Create cache for efficient repeated cost/gradient evaluations
-    cache = CostGradientStructureCache(Traj_t_list, Ms_tot, n_cc, n_eig_total)
-    
-    # Use cached version for faster optimization (reuses sparse structure)
-    cost_with_grad = lambda x: getCostGradientKordacc_re_adaptive_cached(x, cache, data)
+    # Objective expects x -> (cost, grad)
+    cf = cost_fn or getCostGradientKordacc_re_adaptive
+    cost_with_grad = lambda x: cf(x, Traj, Traj_t, data, n_cc)
 
     x0 = -10 + (10 - (-10)) * rng.random(n_eig_total)
     bounds = optimize.Bounds(-15 * np.ones(n_eig_total), 15 * np.ones(n_eig_total))
