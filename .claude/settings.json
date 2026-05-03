@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "additionalDirectories": [
+      "/home/zanubiadepasquale/Development/LPV-Koopman-modeling-and-control/functions"
+    ],
+    "allow": [
+      "Bash(python3 -c ' *)"
+    ]
+  }
+}
