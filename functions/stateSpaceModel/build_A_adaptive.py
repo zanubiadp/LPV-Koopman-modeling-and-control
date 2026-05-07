@@ -55,9 +55,9 @@ def build_A_adaptive(
     res = optimize.minimize(
         fun=lambda x: cost_with_grad(x)[0],
         x0=x0,
-        method="trust-constr",
+        method="BFGS",
         jac=lambda x: cost_with_grad(x)[1],
-        bounds=bounds,
+        #bounds=bounds,
         options={"verbose": 1},
     )
 
