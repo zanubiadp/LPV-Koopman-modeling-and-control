@@ -4,12 +4,10 @@ Learns eigenvalues from trajectory data via constrained optimization.
 """
 from __future__ import annotations
 
+import cma
 import numpy as np
-from scipy import optimize
 from typing import Callable, Iterable
 
-# Placeholder import for the cost/gradient function.
-# Replace with the actual implementation in this project.
 from functions.stateSpaceModel.getCostGradientKordacc_re_adaptive import (  # type: ignore
     getCostGradientKordacc_re_adaptive,
 )
@@ -45,23 +43,35 @@ def build_A_adaptive(
     rng = rng or np.random.default_rng()
     n_eig_total = int(np.prod(nEig))
 
-    # Objective expects x -> (cost, grad)
     cf = cost_fn or getCostGradientKordacc_re_adaptive
     cost_with_grad = lambda x: cf(x, Traj, Traj_t, data, n_cc)
 
     x0 = -10 + (10 - (-10)) * rng.random(n_eig_total)
-    bounds = optimize.Bounds(-15 * np.ones(n_eig_total), 15 * np.ones(n_eig_total))
 
-    res = optimize.minimize(
-        fun=lambda x: cost_with_grad(x)[0],
-        x0=x0,
-        method="BFGS",
-        jac=lambda x: cost_with_grad(x)[1],
-        #bounds=bounds,
-        options={"verbose": 1},
-    )
+    import os, logging
+    log_path = f"cma_worker_{os.getpid()}.log"
+    logging.basicConfig(filename=log_path, level=logging.INFO, format="%(asctime)s %(message)s")
+    logging.info(f"CMA-ES started: n_eig={n_eig_total}")
 
-    x_opt = res.x
+    def logged_cost(x):
+        cost, grad, _ = cost_with_grad(x)
+        return cost
+
+    es = cma.CMAEvolutionStrategy(x0, 5.0, {
+        'maxiter': 5000,
+        'verbose': 1,
+        'bounds': [-15, 15],
+    })
+
+    while not es.stop():
+        solutions = es.ask()
+        fitvals = [logged_cost(x) for x in solutions]
+        es.tell(solutions, fitvals)
+        if es.result.iterations % 10 == 0:
+            logging.info(f"iter={es.result.iterations} evals={es.result.evaluations} best={es.result.fbest:.6g}")
+
+    x_opt = es.result.xbest
+    logging.info(f"CMA-ES done: best={es.result.fbest:.6g}")
 
     # Reorder complex conjugate eigenvalues
     lambdas_list: list[complex] = []

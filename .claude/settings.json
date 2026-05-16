@@ -1,10 +1,12 @@
 {
   "permissions": {
+    "allow": [
+      "Bash(python3 -c ' *)",
+      "Bash(/home/zanubiadepasquale/Development/LPV-Koopman-modeling-and-control/.venv/bin/pip list *)",
+      "Bash(/home/zanubiadepasquale/Development/LPV-Koopman-modeling-and-control/.venv/bin/pip install *)"
+    ],
     "additionalDirectories": [
       "/home/zanubiadepasquale/Development/LPV-Koopman-modeling-and-control/functions"
-    ],
-    "allow": [
-      "Bash(python3 -c ' *)"
     ]
   }
 }

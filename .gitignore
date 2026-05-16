@@ -3,6 +3,7 @@
 *.pyc
 *.pyo
 *.pyd
+*.log
 
 # Artifacts
 *.pkl

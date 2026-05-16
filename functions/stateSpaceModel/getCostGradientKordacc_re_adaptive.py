@@ -99,14 +99,27 @@ def getCostGradientKordacc_re_adaptive(
 
     L = sparse.coo_matrix((vals, (rows, cols)), shape=(Ms_tot, numCols))
 
-    # Small Tikhonov regularization to avoid exact singularity in LL = L.T @ L
-    # (prevents SuperLU 'Factor is exactly singular' when LL is rank-deficient).
+    # Adaptive Tikhonov regularization: start small and increase until LL is non-singular.
+    # CMA-ES can probe extreme eigenvalue candidates that make L rank-deficient.
     lambda_reg = 1e-8
-    LL = L.T @ L + lambda_reg * sparse.eye(numCols, format="csc")
-    # Solve for the inverse implicitly
-    LL_inv = splinalg.inv(LL.tocsc())
+    LL_inv = None
+    while lambda_reg <= 1.0:
+        LL = L.T @ L + lambda_reg * sparse.eye(numCols, format="csc")
+        try:
+            LL_inv = splinalg.inv(LL.tocsc())
+            break
+        except RuntimeError:
+            lambda_reg *= 1000
+    if LL_inv is None:
+        raise RuntimeError(f"LL remained singular even at lambda_reg={lambda_reg}")
 
     q = LL_inv @ (L.T @ h_vec)
+
+    def _scalar(val) -> complex:
+        """Extract a single complex scalar from any array-like (ndarray, matrix, sparse)."""
+        if hasattr(val, 'toarray'):
+            val = val.toarray()
+        return complex(np.asarray(val).flat[0])
 
     grad = np.zeros(len(x), dtype=complex)
 
@@ -156,13 +169,13 @@ def getCostGradientKordacc_re_adaptive(
             shape=(Ms_tot, numCols),
         )
 
-        grad[ii] = h_vec.T @ dLdx_Re @ q + h_vec.T @ L @ (
+        grad[ii] = _scalar(h_vec.T @ dLdx_Re @ q + h_vec.T @ L @ (
             (-LL_inv @ (dLdx_Re.T @ L + L.T @ dLdx_Re) @ LL_inv) @ L.T @ h_vec + LL_inv @ dLdx_Re.T @ h_vec
-        )
+        ))
 
-        grad[ii + 1] = h_vec.T @ dLdx_Im @ q + h_vec.T @ L @ (
+        grad[ii + 1] = _scalar(h_vec.T @ dLdx_Im @ q + h_vec.T @ L @ (
             (-LL_inv @ (dLdx_Im.T @ L + L.T @ dLdx_Im) @ LL_inv) @ L.T @ h_vec + LL_inv @ dLdx_Im.T @ h_vec
-        )
+        ))
 
     j_prec = j_prec_R
     # Gradients for real variables
@@ -190,9 +203,9 @@ def getCostGradientKordacc_re_adaptive(
             shape=(Ms_tot, numCols),
         )
 
-        grad[ii] = h_vec.T @ dLdx_real @ q + h_vec.T @ L @ (
+        grad[ii] = _scalar(h_vec.T @ dLdx_real @ q + h_vec.T @ L @ (
             (-LL_inv @ (dLdx_real.T @ L + L.T @ dLdx_real) @ LL_inv) @ L.T @ h_vec + LL_inv @ dLdx_real.T @ h_vec
-        )
+        ))
 
     grad = -grad
 
